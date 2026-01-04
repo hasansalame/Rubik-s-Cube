@@ -203,7 +203,7 @@
       -webkit-backdrop-filter: blur(10px);
     }
 
-    /* Solve overlay only (hidden otherwise) */
+    /* Solve overlay only */
     #solveOverlay{
       position:fixed;
       left: max(12px, env(safe-area-inset-left));
@@ -522,7 +522,8 @@
         v.set(Math.round(x), Math.round(y), Math.round(z));
       }
 
-      let busy = false;
+      let busy = false;       // per-move animation/snap
+      let autoMode = false;   // true during scramble/reset/solve loops (keeps orbit responsive)
       let activeTurn = null;
       let pendingRecord = null;
 
@@ -735,8 +736,17 @@
         btnSolve.disabled = v;
       }
 
+      // If someone was mid-drag when starting auto actions, commit it quickly
+      async function finishManualIfAny(){
+        if (!activeTurn) return;
+        let q = Math.round(activeTurn.currentAngle / (Math.PI/2));
+        q = Math.max(-2, Math.min(2, q));
+        await animateSnapTo(q * (Math.PI/2), 0.55);
+        finalizeWithKnownLayer(q, true);
+      }
+
       async function doMove(axis, layer, qTurns, speedFactor, record, withVisualExplain, stepIndex, totalSteps){
-        if (busy) return;
+        if (busy) return; // prevent overlapping moves
         busy = true;
 
         if (withVisualExplain){
@@ -769,37 +779,53 @@
       }
 
       async function scramble(n=22){
-        if (busy) return;
+        if (autoMode) return;
+
+        autoMode = true;
         setButtonsDisabled(true);
         hideSolveOverlay();
         clearHighlight();
-        for (let i=0; i<n; i++){
-          const m = randomMove();
-          await doMove(m.axis, m.layer, m.qTurns, 0.80, true, false, 0, 0);
+
+        await finishManualIfAny();
+
+        try{
+          for (let i=0; i<n; i++){
+            const m = randomMove();
+            await doMove(m.axis, m.layer, m.qTurns, 0.80, true, false, 0, 0);
+          }
+        } finally {
+          autoMode = false;
+          setButtonsDisabled(false);
         }
-        setButtonsDisabled(false);
       }
 
       async function solveWithSteps(){
-        if (busy) return;
+        if (autoMode) return;
         if (moveHistory.length === 0) return;
 
+        autoMode = true;
         setButtonsDisabled(true);
-        const total = moveHistory.length;
 
-        for (let i = total - 1, step = 1; i >= 0; i--, step++){
-          const m = moveHistory[i];
-          await doMove(m.axis, m.layer, -m.qTurns, 1.75, false, true, step, total);
+        await finishManualIfAny();
+
+        try{
+          const total = moveHistory.length;
+          for (let i = total - 1, step = 1; i >= 0; i--, step++){
+            const m = moveHistory[i];
+            await doMove(m.axis, m.layer, -m.qTurns, 1.75, false, true, step, total);
+          }
+          moveHistory.length = 0;
+          hideSolveOverlay();
+          clearHighlight();
+        } finally {
+          autoMode = false;
+          setButtonsDisabled(false);
         }
-
-        moveHistory.length = 0;
-        hideSolveOverlay();
-        clearHighlight();
-        setButtonsDisabled(false);
       }
 
       async function resetFast(){
-        if (busy) return;
+        if (autoMode) return;
+
         hideSolveOverlay();
         clearHighlight();
 
@@ -808,14 +834,22 @@
           return;
         }
 
+        autoMode = true;
         setButtonsDisabled(true);
-        for (let i = moveHistory.length - 1; i >= 0; i--){
-          const m = moveHistory[i];
-          await doMove(m.axis, m.layer, -m.qTurns, 0.45, false, false, 0, 0);
+
+        await finishManualIfAny();
+
+        try{
+          for (let i = moveHistory.length - 1; i >= 0; i--){
+            const m = moveHistory[i];
+            await doMove(m.axis, m.layer, -m.qTurns, 0.45, false, false, 0, 0);
+          }
+          moveHistory.length = 0;
+          orbit.applyFit();
+        } finally {
+          autoMode = false;
+          setButtonsDisabled(false);
         }
-        moveHistory.length = 0;
-        orbit.applyFit();
-        setButtonsDisabled(false);
       }
 
       btnScramble.addEventListener("click", () => scramble(22));
@@ -846,6 +880,12 @@
         turnDir2D:null
       };
 
+      function forceOrbit(curX, curY){
+        state.mode = "orbit";
+        state.hit = null;
+        orbit.last.set(curX, curY);
+      }
+
       function onDown(e){
         pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
 
@@ -867,12 +907,10 @@
         state.start.set(e.clientX, e.clientY);
         state.last.set(e.clientX, e.clientY);
 
-        // Key change:
-        // While auto-solving (busy), we force orbit mode so you can still rotate the camera freely.
-        if (busy){
-          state.mode = "orbit";
-          state.hit = null;
-          orbit.last.set(e.clientX, e.clientY);
+        // Critical fix: during any auto action OR any move animation, always orbit (no twist),
+        // so orbit never "freezes" between moves when busy toggles.
+        if (autoMode || busy){
+          forceOrbit(e.clientX, e.clientY);
           renderer.domElement.setPointerCapture(e.pointerId);
           return;
         }
@@ -884,9 +922,7 @@
           state.decided = false;
           state.turnDir2D = null;
         } else {
-          state.mode = "orbit";
-          state.hit = null;
-          orbit.last.set(e.clientX, e.clientY);
+          forceOrbit(e.clientX, e.clientY);
         }
 
         renderer.domElement.setPointerCapture(e.pointerId);
@@ -909,6 +945,12 @@
 
         const cur = new THREE.Vector2(e.clientX, e.clientY);
 
+        // If auto starts mid-drag, immediately switch to orbit so movement never locks
+        if ((autoMode || busy) && state.mode !== "orbit"){
+          forceOrbit(cur.x, cur.y);
+          return;
+        }
+
         if (state.mode === "orbit"){
           const od = cur.clone().sub(orbit.last);
           orbit.last.copy(cur);
@@ -917,9 +959,6 @@
           orbit.update();
           return;
         }
-
-        // Prevent twisting while auto-solving or snapping
-        if (busy) return;
 
         if (state.mode === "twist"){
           if (!state.hit) return;
@@ -958,7 +997,8 @@
         if (!state.down) return;
         state.down = false;
 
-        if (state.mode === "twist" && activeTurn && !busy){
+        // Only finalize twist if user is twisting and not in auto or move animation
+        if (state.mode === "twist" && activeTurn && !autoMode && !busy){
           let q = Math.round(activeTurn.currentAngle / (Math.PI/2));
           q = Math.max(-2, Math.min(2, q));
           await animateSnapTo(q * (Math.PI/2), 1);
@@ -979,7 +1019,7 @@
       renderer.domElement.addEventListener("pointerup", onUp);
       renderer.domElement.addEventListener("pointercancel", onUp);
 
-      // Wheel zoom now works even during auto-solve
+      // Wheel zoom always works (even during auto)
       renderer.domElement.addEventListener("wheel", (e) => {
         e.preventDefault();
         if (pinch.active) return;
