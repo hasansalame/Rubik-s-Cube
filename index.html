@@ -208,7 +208,7 @@
       position:fixed;
       left: max(12px, env(safe-area-inset-left));
       right:max(12px, env(safe-area-inset-right));
-      top: calc(92px + env(safe-area-inset-top)); /* under title + follow */
+      top: calc(92px + env(safe-area-inset-top));
       z-index:15;
       display:none;
       justify-content:center;
@@ -286,7 +286,6 @@
 <body>
   <div id="error"></div>
 
-  <!-- Title + follow link -->
   <div class="topWrap">
     <div class="topStack">
       <a class="titleChip" href="https://www.instagram.com/hasansalame" target="_blank" rel="noopener noreferrer">
@@ -354,7 +353,6 @@
         return;
       }
 
-      // Renderer
       const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
       renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
       renderer.setSize(innerWidth, innerHeight);
@@ -362,7 +360,6 @@
       document.body.appendChild(renderer.domElement);
       renderer.domElement.style.touchAction = "none";
 
-      // Scene / Camera
       const scene = new THREE.Scene();
       scene.fog = new THREE.Fog(0x0b0f14, 10, 26);
 
@@ -377,14 +374,12 @@
       fill.position.set(-10, 4, -10);
       scene.add(fill);
 
-      // Cube geometry constants
       const SIZE = 3;
       const GAP = 0.06;
       const CUBIE = 0.96;
       const half = (SIZE - 1) / 2;
       const cell = 1 + GAP;
 
-      // Orbit: auto-fit to screen + zoom (wheel, pinch)
       const orbit = {
         radius: 10,
         theta: Math.atan2(camera.position.x, camera.position.z),
@@ -429,14 +424,13 @@
       };
       orbit.applyFit();
 
-      // Cube
       const cubeRoot = new THREE.Group();
       scene.add(cubeRoot);
 
       const COLORS = { U:0xffffff, D:0xffd500, F:0x00a651, B:0x0051ba, R:0xff5800, L:0xc41e3a, N:0x101114 };
       const geo = new THREE.BoxGeometry(CUBIE, CUBIE, CUBIE);
-      const cubies = []; // { mesh, coord }
-      const moveHistory = []; // { axis, layer, qTurns }
+      const cubies = [];
+      const moveHistory = [];
 
       function faceMats(x,y,z){
         const edge = new THREE.MeshStandardMaterial({ color: COLORS.N, roughness: 0.55, metalness: 0.05 });
@@ -450,11 +444,9 @@
           z === -1 ? mk(COLORS.B) : edge
         ];
       }
-
       function coordToPos(cx,cy,cz){
         return new THREE.Vector3(cx*cell, cy*cell, cz*cell);
       }
-
       function buildCube(){
         cubies.length = 0;
         cubeRoot.clear();
@@ -466,7 +458,6 @@
               const cx = ix - half, cy = iy - half, cz = iz - half;
               const mesh = new THREE.Mesh(geo, faceMats(cx,cy,cz));
               mesh.position.copy(coordToPos(cx,cy,cz));
-              mesh.userData.isCubie = true;
               cubeRoot.add(mesh);
               cubies.push({ mesh, coord: new THREE.Vector3(cx,cy,cz) });
             }
@@ -486,7 +477,6 @@
         return g;
       }
 
-      // Raycast
       const raycaster = new THREE.Raycaster();
       const ndc = new THREE.Vector2();
 
@@ -514,7 +504,6 @@
         );
       }
 
-      // Turn math
       function rotateCoordOnce(v, axis, dir){
         let x=v.x, y=v.y, z=v.z;
         if (axis === "x"){
@@ -533,28 +522,19 @@
         v.set(Math.round(x), Math.round(y), Math.round(z));
       }
 
-      const TURN_PIXELS_PER_QUARTER = 140;
-
       let busy = false;
-      let activeTurn = null; // { group, axis, axisVec, currentAngle, movedMeshes[] }
-      let pendingRecord = null; // { axis, layer }
+      let activeTurn = null;
+      let pendingRecord = null;
 
       function startDragTurn(axis, layer){
         const list = layerCubies(axis, layer);
         const group = makeTurnGroup(list);
-
         const axisVec =
           axis === "x" ? new THREE.Vector3(1,0,0) :
           axis === "y" ? new THREE.Vector3(0,1,0) :
                          new THREE.Vector3(0,0,1);
 
-        activeTurn = {
-          group,
-          axis,
-          axisVec,
-          currentAngle: 0,
-          movedMeshes: list.map(c => c.mesh)
-        };
+        activeTurn = { group, axis, axisVec, currentAngle: 0, movedMeshes: list.map(c => c.mesh) };
       }
 
       function applyTurnDelta(deltaAngle){
@@ -565,7 +545,6 @@
 
       function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
 
-      // speedFactor: >1 slower, <1 faster
       function animateSnapTo(targetAngle, speedFactor=1){
         if (!activeTurn) return Promise.resolve();
         busy = true;
@@ -623,7 +602,6 @@
         busy = false;
       }
 
-      // Choose best axis that matches pointer path on screen
       function chooseBestTurnForDrag(hit, drag2D){
         const N = hit.nWorld.clone().normalize();
         const candidates = [
@@ -653,7 +631,7 @@
           const score = Math.abs(drag2D.dot(dir2D));
 
           if (!best || score > best.score){
-            best = { axis: c.axis, layer: 0, dir2D, score };
+            best = { axis: c.axis, dir2D, score };
           }
         }
 
@@ -665,7 +643,6 @@
         return { axis: best.axis, layer, dir2D: best.dir2D };
       }
 
-      // Solve visuals
       const highlightGroup = new THREE.Group();
       scene.add(highlightGroup);
 
@@ -846,7 +823,7 @@
       btnReset.addEventListener("click", resetFast);
 
       // Pointer + zoom (wheel, pinch)
-      const pointers = new Map(); // id -> {x,y}
+      const pointers = new Map();
       const pinch = { active:false, startDist:0, startRadius:0 };
 
       function getTwoPointerIds(){
@@ -870,8 +847,6 @@
       };
 
       function onDown(e){
-        if (busy) return;
-
         pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
 
         if (pointers.size === 2){
@@ -880,6 +855,7 @@
           pinch.active = true;
           pinch.startDist = Math.max(10, dist2(a,b));
           pinch.startRadius = orbit.radius;
+
           state.down = false;
           state.mode = "none";
           state.hit = null;
@@ -890,6 +866,16 @@
         state.down = true;
         state.start.set(e.clientX, e.clientY);
         state.last.set(e.clientX, e.clientY);
+
+        // Key change:
+        // While auto-solving (busy), we force orbit mode so you can still rotate the camera freely.
+        if (busy){
+          state.mode = "orbit";
+          state.hit = null;
+          orbit.last.set(e.clientX, e.clientY);
+          renderer.domElement.setPointerCapture(e.pointerId);
+          return;
+        }
 
         const hit = pick(e);
         if (hit){
@@ -907,8 +893,6 @@
       }
 
       function onMove(e){
-        if (busy) return;
-
         if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
 
         if (pinch.active && pointers.size >= 2){
@@ -933,6 +917,9 @@
           orbit.update();
           return;
         }
+
+        // Prevent twisting while auto-solving or snapping
+        if (busy) return;
 
         if (state.mode === "twist"){
           if (!state.hit) return;
@@ -971,7 +958,7 @@
         if (!state.down) return;
         state.down = false;
 
-        if (state.mode === "twist" && activeTurn){
+        if (state.mode === "twist" && activeTurn && !busy){
           let q = Math.round(activeTurn.currentAngle / (Math.PI/2));
           q = Math.max(-2, Math.min(2, q));
           await animateSnapTo(q * (Math.PI/2), 1);
@@ -992,9 +979,10 @@
       renderer.domElement.addEventListener("pointerup", onUp);
       renderer.domElement.addEventListener("pointercancel", onUp);
 
+      // Wheel zoom now works even during auto-solve
       renderer.domElement.addEventListener("wheel", (e) => {
         e.preventDefault();
-        if (busy || pinch.active) return;
+        if (pinch.active) return;
         const scale = Math.exp(e.deltaY * 0.0012);
         orbit.radius *= scale;
         orbit.update();
